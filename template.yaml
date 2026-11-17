@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless medical booking API (API Gateway + Lambda + DynamoDB + Cognito)
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures: [arm64]
+    Timeout: 10
+    MemorySize: 256
+    Tracing: Active
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref BookingsTable
+        POWERTOOLS_SERVICE_NAME: booking-api
+
+Resources:
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: booking-api-users
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows: [ALLOW_USER_PASSWORD_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+
+  BookingsApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: v1
+      Cors:
+        AllowOrigin: "'*'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowMethods: "'GET,POST,PATCH,DELETE,OPTIONS'"
+      Auth:
+        DefaultAuthorizer: CognitoAuth
+        AddDefaultAuthorizerToCorsPreflight: false
+        Authorizers:
+          CognitoAuth:
+            UserPoolArn: !GetAtt UserPool.Arn
+
+  BookingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: pk, AttributeType: S}
+        - {AttributeName: sk, AttributeType: S}
+        - {AttributeName: slot, AttributeType: S}
+      KeySchema:
+        - {AttributeName: pk, KeyType: HASH}
+        - {AttributeName: sk, KeyType: RANGE}
+      GlobalSecondaryIndexes:
+        - IndexName: by-slot
+          KeySchema:
+            - {AttributeName: slot, KeyType: HASH}
+          Projection: {ProjectionType: ALL}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+
+  HealthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: health.handler
+      Events:
+        Health:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BookingsApi
+            Path: /health
+            Method: get
+            Auth: {Authorizer: NONE}
+
+  BookingsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: bookings.handler
+      Policies:
+        - DynamoDBCrudPolicy: {TableName: !Ref BookingsTable}
+      Events:
+        Create: {Type: Api, Properties: {RestApiId: !Ref BookingsApi, Path: /bookings, Method: post}}
+        List:   {Type: Api, Properties: {RestApiId: !Ref BookingsApi, Path: /bookings, Method: get}}
+        Get:    {Type: Api, Properties: {RestApiId: !Ref BookingsApi, Path: "/bookings/{id}", Method: get}}
+        Cancel: {Type: Api, Properties: {RestApiId: !Ref BookingsApi, Path: "/bookings/{id}", Method: delete}}
+
+Outputs:
+  ApiUrl:
+    Value: !Sub "https://${BookingsApi}.execute-api.${AWS::Region}.amazonaws.com/v1"
+  UserPoolId:
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Value: !Ref UserPoolClient

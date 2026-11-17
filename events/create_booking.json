@@ -1,0 +1,5 @@
+{
+  "httpMethod": "POST",
+  "body": "{\"doctor\": \"dr-naidoo\", \"date\": \"2026-12-01\", \"time\": \"09:30\", \"reason\": \"Check-up\"}",
+  "requestContext": {"authorizer": {"claims": {"sub": "test-user-123"}}}
+}
