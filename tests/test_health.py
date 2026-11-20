@@ -5,4 +5,4 @@ import health
 def test_health():
     r = health.handler({}, None)
     assert r["statusCode"] == 200
-    assert json.loads(r["body"])["status"] == "ok"
+    assert json.loads(r["body"])["status from health"] == "ok"
